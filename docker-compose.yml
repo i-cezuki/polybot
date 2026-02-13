@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  polybot:
+    build: .
+    container_name: polybot-framework
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./src:/app/src
+    env_file:
+      - .env
+    restart: unless-stopped
+    networks:
+      - polybot-network
+
+networks:
+  polybot-network:
+    driver: bridge

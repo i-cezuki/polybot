@@ -1,0 +1,24 @@
+# Polymarket API設定
+polymarket:
+  api:
+    endpoint: "https://clob.polymarket.com"
+    websocket: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+    gamma_endpoint: "https://gamma-api.polymarket.com"
+
+  # レート制限（Polymarket公式制限）
+  rate_limits:
+    rest_api: 100  # リクエスト/分
+    trading_api: 60  # 注文/分
+
+# ログ設定
+logging:
+  level: INFO
+  format: "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> - <level>{message}</level>"
+  rotation: "500 MB"
+  retention: "10 days"
+
+# 監視設定
+monitoring:
+  interval_seconds: 1  # 価格監視間隔
+  reconnect_delay_seconds: 5  # WebSocket再接続待機時間
+  max_reconnect_attempts: 10

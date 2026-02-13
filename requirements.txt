@@ -1,0 +1,19 @@
+# HTTP / API
+aiohttp==3.9.1
+requests==2.31.0
+
+# WebSocket
+websockets==12.0
+
+# 設定ファイル
+PyYAML==6.0.1
+python-dotenv==1.0.0
+
+# ログ
+loguru==0.7.2
+
+# ユーティリティ
+python-dateutil==2.8.2
+
+# Polymarket SDK
+py-clob-client>=0.34.0

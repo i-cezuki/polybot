@@ -1,0 +1,14 @@
+# 監視対象マーケットリスト
+# market_id は Polymarket の conditionId を指定
+# トークンIDはマーケット情報取得時に自動的に取得される
+markets:
+  - market_id: "0x1234567890abcdef"
+    name: "テスト市場"
+    description: "テスト用マーケット"
+    enabled: true
+
+  # 追加マーケット例（コメントアウト）
+  # - market_id: "0xabcdef1234567890"
+  #   name: "ビットコイン価格予測"
+  #   description: "BTC $100k by end of 2026?"
+  #   enabled: false
