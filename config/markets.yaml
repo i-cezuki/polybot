@@ -2,7 +2,7 @@
 # market_id は Polymarket の conditionId を指定
 # トークンIDはマーケット情報取得時に自動的に取得される
 markets:
-  - market_id: "0x1234567890abcdef"
+  - market_id: "0x7b29acc20817a0d31b8ec46025f644c165e726551533ef2fef96b0f4ebe4377c"
     name: "テスト市場"
     description: "テスト用マーケット"
     enabled: true
