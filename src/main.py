@@ -1,5 +1,6 @@
 """メインエントリーポイント"""
 import asyncio
+import json
 import sys
 from pathlib import Path
 
@@ -86,10 +87,11 @@ async def main():
                 clob_token_ids = market_info.get("clobTokenIds")
                 if clob_token_ids:
                     if isinstance(clob_token_ids, str):
-                        # カンマ区切りの場合
-                        token_ids = [
-                            tid.strip() for tid in clob_token_ids.split(",")
-                        ]
+                        # JSON文字列 '["token1","token2"]' をパース
+                        try:
+                            token_ids = json.loads(clob_token_ids)
+                        except json.JSONDecodeError:
+                            token_ids = [clob_token_ids]
                     elif isinstance(clob_token_ids, list):
                         token_ids = clob_token_ids
                     else:

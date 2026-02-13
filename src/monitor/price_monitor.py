@@ -13,7 +13,7 @@ class PriceMonitor:
         self.orderbooks: Dict[str, Dict[str, Any]] = {}
         logger.info("PriceMonitor 初期化完了")
 
-    async def on_price_update(self, data: Dict[str, Any]):
+    async def on_price_update(self, data):
         """
         WebSocketメッセージ受信時のコールバック
 
@@ -24,24 +24,35 @@ class PriceMonitor:
         - tick_size_change: ティックサイズ変更
 
         Args:
-            data: WebSocketから受信したデータ
+            data: WebSocketから受信したデータ（dictまたはlist）
         """
         try:
-            event_type = data.get("event_type")
-
-            if event_type == "book":
-                await self._handle_book(data)
-            elif event_type == "price_change":
-                await self._handle_price_change(data)
-            elif event_type == "last_trade_price":
-                await self._handle_last_trade(data)
-            elif event_type == "tick_size_change":
-                await self._handle_tick_size_change(data)
+            # メッセージがリストの場合、各要素を個別処理
+            if isinstance(data, list):
+                for item in data:
+                    await self._process_event(item)
+            elif isinstance(data, dict):
+                await self._process_event(data)
             else:
-                logger.debug(f"未処理イベント: {event_type}, data={data}")
+                logger.debug(f"未知のデータ形式: type={type(data)}, data={data}")
 
         except Exception as e:
             logger.error(f"価格更新処理エラー: {e}")
+
+    async def _process_event(self, data: Dict[str, Any]):
+        """単一イベントを処理"""
+        event_type = data.get("event_type")
+
+        if event_type == "book":
+            await self._handle_book(data)
+        elif event_type == "price_change":
+            await self._handle_price_change(data)
+        elif event_type == "last_trade_price":
+            await self._handle_last_trade(data)
+        elif event_type == "tick_size_change":
+            await self._handle_tick_size_change(data)
+        else:
+            logger.debug(f"未処理イベント: {event_type}, data={data}")
 
     async def _handle_book(self, data: Dict[str, Any]):
         """オーダーブックスナップショット処理"""
