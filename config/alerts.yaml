@@ -1,0 +1,36 @@
+# アラートルール設定
+#
+# market_id: 対象マーケットの conditionId（"*" で全マーケット対象）
+# conditions: 条件リスト（match_mode で AND/OR 切替）
+# cooldown_minutes: 同一アラートの再送抑制時間（分）
+
+alerts:
+  - name: "価格急落アラート"
+    market_id: "*"
+    match_mode: "match_any"
+    cooldown_minutes: 10
+    conditions:
+      - type: "price_below"
+        threshold: 0.10
+      - type: "price_change_percent"
+        threshold_percent: -10.0
+        timeframe_minutes: 5
+
+  - name: "価格急騰アラート"
+    market_id: "*"
+    match_mode: "match_any"
+    cooldown_minutes: 10
+    conditions:
+      - type: "price_above"
+        threshold: 0.90
+      - type: "price_change_percent"
+        threshold_percent: 10.0
+        timeframe_minutes: 5
+
+  - name: "大口取引アラート"
+    market_id: "*"
+    match_mode: "match_any"
+    cooldown_minutes: 5
+    conditions:
+      - type: "volume_above"
+        threshold: 1000.0
