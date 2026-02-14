@@ -1,14 +1,16 @@
-# 監視対象マーケットリスト
-# market_id は Polymarket の conditionId を指定
-# トークンIDはマーケット情報取得時に自動的に取得される
-markets:
-  - market_id: "0x1234567890abcdef"
-    name: "テスト市場"
-    description: "テスト用マーケット"
-    enabled: true
+# 監視対象マーケット設定
+#
+# auto_discover: true にすると Gamma API からアクティブなマーケットを自動取得
+# auto_discover_limit: 自動取得する件数
+auto_discover: true
+auto_discover_limit: 3
 
-  # 追加マーケット例（コメントアウト）
-  # - market_id: "0xabcdef1234567890"
-  #   name: "ビットコイン価格予測"
-  #   description: "BTC $100k by end of 2026?"
-  #   enabled: false
+# 手動指定のマーケットリスト（auto_discover: false の場合に使用）
+# market_id には実際の conditionId を指定してください
+# conditionId は https://polymarket.com のマーケットページURLや
+# Gamma API (https://gamma-api.polymarket.com/markets) から取得できます
+markets: []
+  # - market_id: "0x..."
+  #   name: "マーケット名"
+  #   description: "説明"
+  #   enabled: true

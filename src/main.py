@@ -16,6 +16,82 @@ from utils.config_loader import ConfigLoader
 from utils.logger import setup_logger
 
 
+def extract_token_ids(market_info: dict) -> list[str]:
+    """マーケット情報からCLOBトークンIDを抽出する"""
+    clob_token_ids = market_info.get("clobTokenIds")
+    if not clob_token_ids:
+        return []
+
+    if isinstance(clob_token_ids, str):
+        try:
+            return json.loads(clob_token_ids)
+        except json.JSONDecodeError:
+            return [clob_token_ids]
+    elif isinstance(clob_token_ids, list):
+        return clob_token_ids
+    return []
+
+
+def is_market_active(market_info: dict) -> bool:
+    """マーケットがアクティブ（未解決）かどうか判定する"""
+    # active フラグ
+    if not market_info.get("active", True):
+        return False
+    # closed フラグ
+    if market_info.get("closed", False):
+        return False
+    # 価格が 0 or 1 のみの場合は解決済み
+    prices_raw = market_info.get("outcomePrices", "")
+    if prices_raw:
+        try:
+            prices = json.loads(prices_raw) if isinstance(prices_raw, str) else prices_raw
+            if all(float(p) in (0.0, 1.0) for p in prices):
+                return False
+        except (json.JSONDecodeError, ValueError):
+            pass
+    return True
+
+
+async def collect_markets_auto(poly_client: PolymarketClient, limit: int) -> list[dict]:
+    """Gamma APIからアクティブなマーケットを自動取得する"""
+    logger.info(f"Gamma APIからアクティブなマーケットを自動取得中 (上限: {limit}件)...")
+    gamma_markets = await poly_client.get_markets_from_gamma(
+        active=True, closed=False, limit=limit * 3,  # 余裕を持って取得
+    )
+
+    active_markets = []
+    for m in gamma_markets:
+        if not is_market_active(m):
+            continue
+        token_ids = extract_token_ids(m)
+        if not token_ids:
+            continue
+        active_markets.append(m)
+        if len(active_markets) >= limit:
+            break
+
+    return active_markets
+
+
+async def collect_markets_manual(
+    poly_client: PolymarketClient, markets_config: list[dict]
+) -> list[dict]:
+    """markets.yaml の手動指定からマーケット情報を取得する"""
+    enabled = [m for m in markets_config if m.get("enabled", True)]
+    logger.info(f"設定ファイルから {len(enabled)} 件のマーケットを読み込み")
+
+    result = []
+    for market in enabled:
+        condition_id = market["market_id"]
+        market_info = await poly_client.get_market_by_condition_id(condition_id)
+        if market_info and is_market_active(market_info):
+            result.append(market_info)
+        else:
+            name = market.get("name", condition_id)
+            logger.warning(f"スキップ（見つからないか解決済み）: {name}")
+    return result
+
+
 async def main():
     """メイン処理"""
 
@@ -56,76 +132,45 @@ async def main():
         # 価格モニター初期化
         price_monitor = PriceMonitor()
 
-        # 監視対象マーケットのトークンID収集
-        enabled_markets = [
-            m for m in markets_config["markets"] if m.get("enabled", True)
-        ]
-        logger.info(f"監視対象マーケット数: {len(enabled_markets)}")
-
-        all_token_ids = []
-
-        for market in enabled_markets:
-            condition_id = market["market_id"]
-            market_name = market.get("name", "N/A")
-
-            # Gamma APIでマーケット情報取得
-            market_info = await poly_client.get_market_by_condition_id(condition_id)
-
-            if market_info:
-                question = market_info.get("question", "N/A")
-                outcomes = market_info.get("outcomes", "N/A")
-                outcome_prices = market_info.get("outcomePrices", "N/A")
-
-                logger.info(
-                    f"マーケット: {market_name} | "
-                    f"質問: {question} | "
-                    f"outcomes: {outcomes} | "
-                    f"prices: {outcome_prices}"
-                )
-
-                # CLOBトークンIDを取得
-                clob_token_ids = market_info.get("clobTokenIds")
-                if clob_token_ids:
-                    if isinstance(clob_token_ids, str):
-                        # JSON文字列 '["token1","token2"]' をパース
-                        try:
-                            token_ids = json.loads(clob_token_ids)
-                        except json.JSONDecodeError:
-                            token_ids = [clob_token_ids]
-                    elif isinstance(clob_token_ids, list):
-                        token_ids = clob_token_ids
-                    else:
-                        token_ids = []
-
-                    all_token_ids.extend(token_ids)
-                    logger.info(f"トークンID: {token_ids}")
-
-                    # REST APIで現在価格を取得
-                    for token_id in token_ids:
-                        midpoint = await poly_client.get_midpoint(token_id)
-                        if midpoint is not None:
-                            logger.info(
-                                f"現在のミッドポイント: token={token_id[:16]}... price={midpoint}"
-                            )
-            else:
-                logger.warning(f"マーケット情報取得失敗: {market_name} ({condition_id})")
-
-        if not all_token_ids:
-            logger.warning(
-                "購読対象のトークンIDがありません。"
-                "config/markets.yamlの market_id を実際のcondition IDに更新してください。"
+        # マーケット取得（自動 or 手動）
+        auto_discover = markets_config.get("auto_discover", False)
+        if auto_discover:
+            limit = markets_config.get("auto_discover_limit", 3)
+            target_markets = await collect_markets_auto(poly_client, limit)
+        else:
+            target_markets = await collect_markets_manual(
+                poly_client, markets_config.get("markets", [])
             )
-            logger.info("WebSocket接続をスキップします。")
 
-            # トークンIDがなくてもGamma APIのテストとして動作確認
-            logger.info("--- Gamma APIテスト: アクティブマーケット一覧取得 ---")
-            active_markets = await poly_client.get_markets_from_gamma(limit=5)
-            for m in active_markets:
-                logger.info(
-                    f"  [{m.get('id', 'N/A')[:8]}...] {m.get('question', 'N/A')}"
-                )
-
+        if not target_markets:
+            logger.error("監視対象のアクティブなマーケットが見つかりません。終了します。")
             return
+
+        # トークンID収集 & マーケット情報ログ出力
+        all_token_ids = []
+        for market_info in target_markets:
+            question = market_info.get("question", "N/A")
+            outcomes = market_info.get("outcomes", "N/A")
+            outcome_prices = market_info.get("outcomePrices", "N/A")
+            condition_id = market_info.get("conditionId", "N/A")
+
+            logger.info(
+                f"監視対象: {question} | "
+                f"outcomes: {outcomes} | "
+                f"prices: {outcome_prices}"
+            )
+
+            token_ids = extract_token_ids(market_info)
+            all_token_ids.extend(token_ids)
+            logger.info(f"  トークンID: {[tid[:16] + '...' for tid in token_ids]}")
+
+            # REST APIで現在のミッドポイント価格を取得
+            for token_id in token_ids:
+                midpoint = await poly_client.get_midpoint(token_id)
+                if midpoint is not None:
+                    logger.info(f"  ミッドポイント: {token_id[:16]}... = {midpoint}")
+
+        logger.info(f"合計 {len(target_markets)} マーケット / {len(all_token_ids)} トークンを監視")
 
         # WebSocket接続
         ws_url = config["polymarket"]["api"]["websocket"]
