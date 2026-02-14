@@ -7,8 +7,13 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - ./src:/app/src
+    environment:
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
     env_file:
       - .env
+    command: >
+      bash -c "find /app -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null; python src/main.py"
     restart: unless-stopped
     networks:
       - polybot-network
