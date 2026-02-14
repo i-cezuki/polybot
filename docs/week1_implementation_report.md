@@ -189,9 +189,63 @@ docker-compose logs -f
 
 ---
 
-## 6. 次のステップ（Week 2 に向けて）
+## 6. レビュー指摘対応（追加実装）
+
+レビューで指摘された3点を追加実装済み。
+
+### 6.1 データ蓄積（JSONL形式）
+
+`src/monitor/data_recorder.py` を新規作成。
+
+- `price_change` → `data/price_changes_YYYY-MM-DD.jsonl`
+- `book` → `data/books_YYYY-MM-DD.jsonl`
+- `last_trade_price` → `data/trades_YYYY-MM-DD.jsonl`
+- 各レコードに `recorded_at`（UTC ISO形式）を自動付与
+- Week 4 のバックテスト用データが起動直後から蓄積される
+
+### 6.2 PriceMonitor のObserverパターン化
+
+```python
+# main.py での利用例
+price_monitor = PriceMonitor()
+data_recorder = DataRecorder(data_dir="data")
+price_monitor.add_handler(data_recorder.handle_event)
+
+# Week 2 での拡張イメージ
+price_monitor.add_handler(db.save_event)        # DB保存
+price_monitor.add_handler(alert.check_threshold) # アラート判定
+```
+
+- `add_handler(handler)` で外部コールバックを登録
+- ハンドラーの型: `async def handler(event_type: str, data: dict) -> None`
+- ハンドラーがエラーを投げても他の処理は継続
+- PriceMonitor 本体を変更せずに機能追加が可能
+
+### 6.3 テスト基盤（pytest）
+
+```
+tests/
+├── conftest.py              # 共通フィクスチャ（サンプルイベントデータ）
+├── test_config_loader.py    # ConfigLoader ユニットテスト（4件）
+├── test_price_monitor.py    # PriceMonitor ユニットテスト（8件）
+├── test_data_recorder.py    # DataRecorder ユニットテスト（4件）
+└── test_connection.py       # API接続 統合テスト（3件、環境変数必要時のみ実行）
+```
+
+実行方法:
+```bash
+# ユニットテスト（APIキー不要）
+docker-compose exec polybot pytest tests/ -v --ignore=tests/test_connection.py
+
+# 統合テスト含む（APIキー必要）
+docker-compose exec polybot pytest tests/ -v
+```
+
+---
+
+## 7. 次のステップ（Week 2 に向けて）
 
 - 取引ロジック（シグナル検出）の実装
 - CLOB認証クライアントの初期化（注文発行用）
-- 価格データのDB/CSV保存
-- バックテスト用データ収集
+- DB保存ハンドラーの実装（`price_monitor.add_handler(db.save)` で接続）
+- アラート判定ハンドラーの実装

@@ -11,6 +11,7 @@ from loguru import logger
 
 from api.polymarket_client import PolymarketClient
 from api.websocket_client import WebSocketClient
+from monitor.data_recorder import DataRecorder
 from monitor.price_monitor import PriceMonitor
 from utils.config_loader import ConfigLoader
 from utils.logger import setup_logger
@@ -131,6 +132,10 @@ async def main():
 
         # 価格モニター初期化
         price_monitor = PriceMonitor()
+
+        # データ蓄積ハンドラー登録（JSONL形式で data/ に保存）
+        data_recorder = DataRecorder(data_dir="data")
+        price_monitor.add_handler(data_recorder.handle_event)
 
         # マーケット取得（自動 or 手動）
         auto_discover = markets_config.get("auto_discover", False)
