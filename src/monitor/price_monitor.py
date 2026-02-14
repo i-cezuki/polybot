@@ -17,15 +17,12 @@ class PriceMonitor:
         """WebSocketメッセージ受信時のコールバック"""
         try:
             if isinstance(data, list):
+                # bookイベント等: [{event_type: "book", ...}, ...]
                 for item in data:
                     if isinstance(item, dict):
                         await self._process_event(item)
-                    else:
-                        logger.debug(f"リスト内の非dictアイテムをスキップ: {type(item)}")
             elif isinstance(data, dict):
                 await self._process_event(data)
-            else:
-                logger.debug(f"未知のデータ形式: type={type(data)}")
         except Exception as e:
             logger.error(f"価格更新処理エラー: {e} | data={str(data)[:200]}", exc_info=True)
 
@@ -36,23 +33,28 @@ class PriceMonitor:
 
             if event_type == "book":
                 await self._handle_book(data)
-            elif event_type == "price_change":
-                await self._handle_price_change(data)
             elif event_type == "last_trade_price":
                 await self._handle_last_trade(data)
             elif event_type == "tick_size_change":
                 await self._handle_tick_size_change(data)
+            elif "price_changes" in data:
+                # ラッパー形式: {"market": "...", "price_changes": [...]}
+                market = data.get("market", "")
+                for change in data["price_changes"]:
+                    if isinstance(change, dict):
+                        change["market"] = market
+                        await self._handle_price_change(change)
+            elif event_type == "price_change":
+                await self._handle_price_change(data)
             else:
-                logger.debug(f"未処理イベント: {event_type}")
+                logger.debug(f"未処理イベント: keys={list(data.keys())}")
         except Exception as e:
             logger.error(
-                f"イベント処理エラー: {e} | event_type={data.get('event_type')} | "
-                f"keys={list(data.keys())} | data={str(data)[:300]}",
+                f"イベント処理エラー: {e} | keys={list(data.keys())} | data={str(data)[:300]}",
                 exc_info=True,
             )
 
     def _short_id(self, asset_id: Optional[str]) -> str:
-        """asset_idの短縮表示"""
         if not asset_id:
             return "unknown"
         return asset_id[:16] + "..."
@@ -65,27 +67,27 @@ class PriceMonitor:
 
         market = data.get("market")
         timestamp = data.get("timestamp")
-        buys = data.get("buys") or []
-        sells = data.get("sells") or []
+        bids = data.get("bids") or []
+        asks = data.get("asks") or []
 
         self.orderbooks[asset_id] = {
-            "buys": buys,
-            "sells": sells,
+            "bids": bids,
+            "asks": asks,
             "timestamp": timestamp,
             "market": market,
         }
 
         best_bid = "N/A"
         best_ask = "N/A"
-        if buys and isinstance(buys[0], dict):
-            best_bid = buys[0].get("price", "N/A")
-        if sells and isinstance(sells[0], dict):
-            best_ask = sells[0].get("price", "N/A")
+        if bids and isinstance(bids[0], dict):
+            best_bid = bids[0].get("price", "N/A")
+        if asks and isinstance(asks[0], dict):
+            best_ask = asks[0].get("price", "N/A")
 
         logger.info(
             f"[BOOK] asset={self._short_id(asset_id)} | "
             f"best_bid={best_bid} | best_ask={best_ask} | "
-            f"bids={len(buys)} | asks={len(sells)}"
+            f"bids={len(bids)} | asks={len(asks)}"
         )
 
     async def _handle_price_change(self, data: Dict[str, Any]):
@@ -97,18 +99,23 @@ class PriceMonitor:
         price = data.get("price")
         size = data.get("size")
         side = data.get("side")
+        best_bid = data.get("best_bid")
+        best_ask = data.get("best_ask")
         timestamp = data.get("timestamp", datetime.now(timezone.utc).isoformat())
 
         self.price_data[asset_id] = {
             "price": price,
             "size": size,
             "side": side,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
             "timestamp": timestamp,
         }
 
         logger.info(
             f"[PRICE] asset={self._short_id(asset_id)} | "
-            f"side={side} | price={price} | size={size}"
+            f"side={side} | price={price} | size={size} | "
+            f"bid={best_bid} | ask={best_ask}"
         )
 
     async def _handle_last_trade(self, data: Dict[str, Any]):
