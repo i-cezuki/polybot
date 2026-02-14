@@ -1,6 +1,6 @@
 """価格監視モジュール"""
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from loguru import logger
 
@@ -13,54 +13,60 @@ class PriceMonitor:
         self.orderbooks: Dict[str, Dict[str, Any]] = {}
         logger.info("PriceMonitor 初期化完了")
 
-    async def on_price_update(self, data):
-        """
-        WebSocketメッセージ受信時のコールバック
-
-        Polymarket CLOB WebSocketのイベントタイプ:
-        - book: オーダーブックスナップショット
-        - price_change: 価格レベル更新
-        - last_trade_price: 最終取引価格
-        - tick_size_change: ティックサイズ変更
-
-        Args:
-            data: WebSocketから受信したデータ（dictまたはlist）
-        """
+    async def on_price_update(self, data: Union[Dict, List, Any]):
+        """WebSocketメッセージ受信時のコールバック"""
         try:
-            # メッセージがリストの場合、各要素を個別処理
             if isinstance(data, list):
                 for item in data:
-                    await self._process_event(item)
+                    if isinstance(item, dict):
+                        await self._process_event(item)
+                    else:
+                        logger.debug(f"リスト内の非dictアイテムをスキップ: {type(item)}")
             elif isinstance(data, dict):
                 await self._process_event(data)
             else:
-                logger.debug(f"未知のデータ形式: type={type(data)}, data={data}")
-
+                logger.debug(f"未知のデータ形式: type={type(data)}")
         except Exception as e:
-            logger.error(f"価格更新処理エラー: {e}")
+            logger.error(f"価格更新処理エラー: {e} | data={str(data)[:200]}", exc_info=True)
 
     async def _process_event(self, data: Dict[str, Any]):
         """単一イベントを処理"""
-        event_type = data.get("event_type")
+        try:
+            event_type = data.get("event_type")
 
-        if event_type == "book":
-            await self._handle_book(data)
-        elif event_type == "price_change":
-            await self._handle_price_change(data)
-        elif event_type == "last_trade_price":
-            await self._handle_last_trade(data)
-        elif event_type == "tick_size_change":
-            await self._handle_tick_size_change(data)
-        else:
-            logger.debug(f"未処理イベント: {event_type}, data={data}")
+            if event_type == "book":
+                await self._handle_book(data)
+            elif event_type == "price_change":
+                await self._handle_price_change(data)
+            elif event_type == "last_trade_price":
+                await self._handle_last_trade(data)
+            elif event_type == "tick_size_change":
+                await self._handle_tick_size_change(data)
+            else:
+                logger.debug(f"未処理イベント: {event_type}")
+        except Exception as e:
+            logger.error(
+                f"イベント処理エラー: {e} | event_type={data.get('event_type')} | "
+                f"keys={list(data.keys())} | data={str(data)[:300]}",
+                exc_info=True,
+            )
+
+    def _short_id(self, asset_id: Optional[str]) -> str:
+        """asset_idの短縮表示"""
+        if not asset_id:
+            return "unknown"
+        return asset_id[:16] + "..."
 
     async def _handle_book(self, data: Dict[str, Any]):
         """オーダーブックスナップショット処理"""
         asset_id = data.get("asset_id")
+        if not asset_id:
+            return
+
         market = data.get("market")
         timestamp = data.get("timestamp")
-        buys = data.get("buys", [])
-        sells = data.get("sells", [])
+        buys = data.get("buys") or []
+        sells = data.get("sells") or []
 
         self.orderbooks[asset_id] = {
             "buys": buys,
@@ -69,11 +75,15 @@ class PriceMonitor:
             "market": market,
         }
 
-        best_bid = buys[0]["price"] if buys else "N/A"
-        best_ask = sells[0]["price"] if sells else "N/A"
+        best_bid = "N/A"
+        best_ask = "N/A"
+        if buys and isinstance(buys[0], dict):
+            best_bid = buys[0].get("price", "N/A")
+        if sells and isinstance(sells[0], dict):
+            best_ask = sells[0].get("price", "N/A")
 
         logger.info(
-            f"[BOOK] asset={asset_id[:16]}... | "
+            f"[BOOK] asset={self._short_id(asset_id)} | "
             f"best_bid={best_bid} | best_ask={best_ask} | "
             f"bids={len(buys)} | asks={len(sells)}"
         )
@@ -81,6 +91,9 @@ class PriceMonitor:
     async def _handle_price_change(self, data: Dict[str, Any]):
         """価格変更イベント処理"""
         asset_id = data.get("asset_id")
+        if not asset_id:
+            return
+
         price = data.get("price")
         size = data.get("size")
         side = data.get("side")
@@ -94,7 +107,7 @@ class PriceMonitor:
         }
 
         logger.info(
-            f"[PRICE] asset={asset_id[:16]}... | "
+            f"[PRICE] asset={self._short_id(asset_id)} | "
             f"side={side} | price={price} | size={size}"
         )
 
@@ -106,7 +119,7 @@ class PriceMonitor:
         side = data.get("side")
 
         logger.info(
-            f"[TRADE] asset={asset_id[:16]}... | "
+            f"[TRADE] asset={self._short_id(asset_id)} | "
             f"side={side} | price={price} | size={size}"
         )
 
@@ -121,28 +134,11 @@ class PriceMonitor:
         )
 
     def get_current_price(self, asset_id: str) -> Optional[float]:
-        """
-        現在価格を取得
-
-        Args:
-            asset_id: アセットID
-
-        Returns:
-            float: 現在価格
-        """
+        """現在価格を取得"""
         if asset_id in self.price_data:
             return float(self.price_data[asset_id]["price"])
-        logger.warning(f"価格データが存在しません: {asset_id}")
         return None
 
     def get_orderbook(self, asset_id: str) -> Optional[Dict[str, Any]]:
-        """
-        現在のオーダーブックを取得
-
-        Args:
-            asset_id: アセットID
-
-        Returns:
-            Dict: オーダーブック
-        """
+        """現在のオーダーブックを取得"""
         return self.orderbooks.get(asset_id)

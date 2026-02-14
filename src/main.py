@@ -96,7 +96,7 @@ async def main():
     """メイン処理"""
 
     # ロガー初期化
-    setup_logger("INFO")
+    setup_logger("DEBUG")
     logger.info("=== PolyBot Framework 起動 ===")
 
     ws_client = None

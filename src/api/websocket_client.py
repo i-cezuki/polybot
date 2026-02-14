@@ -118,6 +118,7 @@ class WebSocketClient:
                     continue
 
                 data = json.loads(message)
+                logger.debug(f"WS受信: {str(message)[:300]}")
 
                 # コールバック関数を実行
                 await self.on_message(data)
