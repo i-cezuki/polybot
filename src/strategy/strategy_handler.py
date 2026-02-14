@@ -11,6 +11,16 @@ from executor.position_manager import PositionManager
 from risk.risk_manager import RiskManager
 
 
+def _to_float(value) -> Optional[float]:
+    """値を float に安全変換（None/不正値は None を返す）"""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 class StrategyHandler:
     """戦略ハンドラー
 
@@ -101,23 +111,30 @@ class StrategyHandler:
                 )
                 return
 
-            # 注文実行（シミュレーション）
-            trade_id = self.order_executor.execute(
+            # 注文実行（シミュレーション・スリッページ込み）
+            best_bid = _to_float(data.get("best_bid"))
+            best_ask = _to_float(data.get("best_ask"))
+
+            result = self.order_executor.execute(
                 asset_id=asset_id,
                 market=data.get("market"),
                 action=action,
                 price=price,
                 amount_usdc=amount,
                 reason=reason,
+                best_bid=best_bid,
+                best_ask=best_ask,
             )
 
-            if trade_id is not None:
-                # ポジション更新
+            if result is not None:
+                trade_id, exec_price = result
+
+                # ポジション更新（スリッページ適用後の約定価格を使用）
                 realized_pnl = self.position_manager.update_after_trade(
                     asset_id=asset_id,
                     market=data.get("market"),
                     action=action,
-                    price=price,
+                    price=exec_price,
                     amount_usdc=amount,
                 )
 
@@ -127,7 +144,7 @@ class StrategyHandler:
                         asset_id=asset_id,
                         market=data.get("market"),
                         action=action,
-                        price=price,
+                        price=exec_price,
                         amount_usdc=amount,
                         realized_pnl=realized_pnl,
                         reason=f"P&L update: {reason}",

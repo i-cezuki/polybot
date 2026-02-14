@@ -160,10 +160,10 @@ class DatabaseManager:
                 asset_id=asset_id,
                 market=market,
                 action=action,
-                price=price,
-                amount_usdc=amount_usdc,
+                price=round(price, 6),
+                amount_usdc=round(amount_usdc, 6),
                 simulated=simulated,
-                realized_pnl=realized_pnl,
+                realized_pnl=round(realized_pnl, 6) if realized_pnl is not None else None,
                 reason=reason,
                 created_at=datetime.now(timezone.utc),
             )
@@ -221,8 +221,8 @@ class DatabaseManager:
                 asset_id=asset_id,
                 market=market,
                 side=side,
-                size_usdc=size_usdc,
-                average_price=average_price,
+                size_usdc=round(size_usdc, 6),
+                average_price=round(average_price, 6),
                 realized_pnl=0.0,
                 opened_at=datetime.now(timezone.utc),
                 updated_at=datetime.now(timezone.utc),
@@ -243,9 +243,9 @@ class DatabaseManager:
             stmt = select(Position).where(Position.asset_id == asset_id)
             position = session.execute(stmt).scalar_one_or_none()
             if position:
-                position.size_usdc = size_usdc
-                position.average_price = average_price
-                position.realized_pnl += realized_pnl_delta
+                position.size_usdc = round(size_usdc, 6)
+                position.average_price = round(average_price, 6)
+                position.realized_pnl = round(position.realized_pnl + realized_pnl_delta, 6)
                 position.updated_at = datetime.now(timezone.utc)
 
     def delete_position(self, asset_id: str) -> None:

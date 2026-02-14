@@ -187,7 +187,9 @@ async def main():
 
         position_manager = PositionManager(db_manager)
         risk_manager = RiskManager(risk_config, db_manager, position_manager)
-        order_executor = OrderExecutor(db_manager)
+        order_executor = OrderExecutor(
+            db_manager, slippage_config=risk_config.get("slippage")
+        )
 
         try:
             strategy_handler = StrategyHandler(

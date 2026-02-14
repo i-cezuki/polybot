@@ -1,4 +1,10 @@
-"""ポジション管理モジュール"""
+"""ポジション管理モジュール
+
+Polymarket はトークン単位でポジションを管理する。
+YES トークンと NO トークンは異なる asset_id を持つため、
+現在の asset_id ベースの設計で YES/NO 両方のポジションを正しく追跡できる。
+（将来の空売り機能には別途ロジック拡張が必要）
+"""
 from typing import Optional
 
 from loguru import logger
@@ -33,7 +39,7 @@ class PositionManager:
         with self.db_manager._session() as session:
             stmt = select(func.coalesce(func.sum(Position.size_usdc), 0.0))
             result = session.execute(stmt).scalar()
-            return float(result)
+            return round(float(result), 6)
 
     def update_after_trade(
         self,
@@ -50,6 +56,8 @@ class PositionManager:
         """
         position = self.db_manager.get_position(asset_id)
         realized_pnl = 0.0
+        amount_usdc = round(amount_usdc, 6)
+        price = round(price, 6)
 
         if action == "BUY":
             if position is None:
@@ -67,11 +75,15 @@ class PositionManager:
                 )
             else:
                 # 加重平均で追加
-                total_usdc = position.size_usdc + amount_usdc
-                new_avg = (
-                    (position.average_price * position.size_usdc)
-                    + (price * amount_usdc)
-                ) / total_usdc
+                total_usdc = round(position.size_usdc + amount_usdc, 6)
+                new_avg = round(
+                    (
+                        (position.average_price * position.size_usdc)
+                        + (price * amount_usdc)
+                    )
+                    / total_usdc,
+                    6,
+                )
                 self.db_manager.update_position(
                     asset_id=asset_id,
                     size_usdc=total_usdc,
@@ -89,11 +101,14 @@ class PositionManager:
                 )
                 return 0.0
 
-            sell_usdc = min(amount_usdc, position.size_usdc)
+            sell_usdc = round(min(amount_usdc, position.size_usdc), 6)
             # P&L = sell_amount * (sell_price - avg_price) / avg_price
             if position.average_price > 0:
-                realized_pnl = sell_usdc * (price - position.average_price) / position.average_price
-            remaining = position.size_usdc - sell_usdc
+                realized_pnl = round(
+                    sell_usdc * (price - position.average_price) / position.average_price,
+                    6,
+                )
+            remaining = round(position.size_usdc - sell_usdc, 6)
 
             if remaining <= 0.001:
                 # 全決済

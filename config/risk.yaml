@@ -8,3 +8,9 @@ global:
 circuit_breaker:
   enabled: true
   cooldown_minutes: 60
+
+# スリッページ設定
+# BUY → best_ask, SELL → best_bid を基準価格とし、さらに slippage_bps 分を不利方向に加算
+slippage:
+  use_book_price: true    # true: BUY=best_ask / SELL=best_bid を使用
+  slippage_bps: 50        # 追加スリッページ (basis points, 50 = 0.50%)

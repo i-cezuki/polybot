@@ -75,7 +75,12 @@ class Trade(Base):
 
 
 class Position(Base):
-    """ポジションテーブル"""
+    """ポジションテーブル
+
+    Polymarket の YES/NO トークンは異なる asset_id を持つため、
+    asset_id 単位でポジションを管理すれば両方を正しく追跡できる。
+    現状は現物のみ（空売りなし）を前提とした設計。
+    """
     __tablename__ = "positions"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
