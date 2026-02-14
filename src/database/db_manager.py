@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Optional
 
 from loguru import logger
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
-from database.models import AlertLog, Base, NotificationHistory, PriceHistory
+from database.models import AlertLog, Base, NotificationHistory, Position, PriceHistory, Trade
 
 
 class DatabaseManager:
@@ -140,3 +140,118 @@ class DatabaseManager:
             session.add(record)
             session.flush()
             return record.id
+
+    # --- Trade メソッド ---
+
+    def save_trade(
+        self,
+        asset_id: str,
+        market: Optional[str],
+        action: str,
+        price: float,
+        amount_usdc: float,
+        simulated: int = 1,
+        realized_pnl: Optional[float] = None,
+        reason: Optional[str] = None,
+    ) -> int:
+        """取引記録をDBに保存"""
+        with self._session() as session:
+            record = Trade(
+                asset_id=asset_id,
+                market=market,
+                action=action,
+                price=price,
+                amount_usdc=amount_usdc,
+                simulated=simulated,
+                realized_pnl=realized_pnl,
+                reason=reason,
+                created_at=datetime.now(timezone.utc),
+            )
+            session.add(record)
+            session.flush()
+            return record.id
+
+    def get_trades_since(self, since: datetime) -> list[Trade]:
+        """指定時刻以降の取引記録を取得"""
+        with self._session() as session:
+            stmt = (
+                select(Trade)
+                .where(Trade.created_at >= since)
+                .order_by(Trade.created_at.asc())
+            )
+            results = session.execute(stmt).scalars().all()
+            session.expunge_all()
+            return list(results)
+
+    def get_daily_pnl(self) -> float:
+        """本日のシミュレーション実現P&Lの合計を取得"""
+        today_start = datetime.now(timezone.utc).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        )
+        with self._session() as session:
+            stmt = (
+                select(func.coalesce(func.sum(Trade.realized_pnl), 0.0))
+                .where(Trade.created_at >= today_start)
+            )
+            result = session.execute(stmt).scalar()
+            return float(result)
+
+    # --- Position メソッド ---
+
+    def get_position(self, asset_id: str) -> Optional[Position]:
+        """asset_id のポジションを取得"""
+        with self._session() as session:
+            stmt = select(Position).where(Position.asset_id == asset_id)
+            result = session.execute(stmt).scalar_one_or_none()
+            if result:
+                session.expunge(result)
+            return result
+
+    def save_position(
+        self,
+        asset_id: str,
+        market: Optional[str],
+        side: str,
+        size_usdc: float,
+        average_price: float,
+    ) -> int:
+        """新規ポジションをDBに保存"""
+        with self._session() as session:
+            record = Position(
+                asset_id=asset_id,
+                market=market,
+                side=side,
+                size_usdc=size_usdc,
+                average_price=average_price,
+                realized_pnl=0.0,
+                opened_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            session.add(record)
+            session.flush()
+            return record.id
+
+    def update_position(
+        self,
+        asset_id: str,
+        size_usdc: float,
+        average_price: float,
+        realized_pnl_delta: float = 0.0,
+    ) -> None:
+        """ポジションを更新"""
+        with self._session() as session:
+            stmt = select(Position).where(Position.asset_id == asset_id)
+            position = session.execute(stmt).scalar_one_or_none()
+            if position:
+                position.size_usdc = size_usdc
+                position.average_price = average_price
+                position.realized_pnl += realized_pnl_delta
+                position.updated_at = datetime.now(timezone.utc)
+
+    def delete_position(self, asset_id: str) -> None:
+        """ポジションを削除"""
+        with self._session() as session:
+            stmt = select(Position).where(Position.asset_id == asset_id)
+            position = session.execute(stmt).scalar_one_or_none()
+            if position:
+                session.delete(position)

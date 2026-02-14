@@ -1,0 +1,10 @@
+# リスク管理設定
+global:
+  max_total_position_usdc: 1000
+  max_daily_loss_usdc: 100
+  max_daily_trades: 50
+  max_single_trade_usdc: 100
+
+circuit_breaker:
+  enabled: true
+  cooldown_minutes: 60
