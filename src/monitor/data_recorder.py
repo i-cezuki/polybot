@@ -8,6 +8,7 @@ data/ ディレクトリに保存する。Week 4のバックテスト用デー�
   data/books_YYYY-MM-DD.jsonl          - オーダーブックスナップショット
   data/trades_YYYY-MM-DD.jsonl         - 取引イベント
 """
+import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,9 +31,8 @@ class DataRecorder:
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         return self.data_dir / f"{prefix}_{today}.jsonl"
 
-    def _write_jsonl(self, prefix: str, record: Dict[str, Any]):
-        """JSONL形式で1行追記"""
-        filepath = self._get_file_path(prefix)
+    def _write_file_sync(self, filepath: Path, record: Dict[str, Any]):
+        """JSONL形式で1行追記（同期・別スレッドから呼ばれる）"""
         record["recorded_at"] = datetime.now(timezone.utc).isoformat()
         with open(filepath, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -41,14 +41,22 @@ class DataRecorder:
         """PriceMonitorから呼ばれるイベントハンドラー
 
         price_monitor.add_handler(recorder.handle_event) で登録する。
+        ファイル書き込みは run_in_executor で別スレッドに委譲し、
+        asyncio イベントループをブロックしない。
 
         Args:
             event_type: イベント種別 ("price_change", "book", "last_trade_price")
             data: イベントデータ
         """
         if event_type == "price_change":
-            self._write_jsonl("price_changes", data)
+            prefix = "price_changes"
         elif event_type == "book":
-            self._write_jsonl("books", data)
+            prefix = "books"
         elif event_type == "last_trade_price":
-            self._write_jsonl("trades", data)
+            prefix = "trades"
+        else:
+            return
+
+        filepath = self._get_file_path(prefix)
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, self._write_file_sync, filepath, data)
