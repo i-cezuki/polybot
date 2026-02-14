@@ -1,23 +1,50 @@
 """価格監視モジュール"""
+import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Callable, Coroutine, Dict, List, Optional, Union
 
 from loguru import logger
 
+# ハンドラーの型: async def handler(event_type: str, data: dict) -> None
+EventHandler = Callable[[str, Dict[str, Any]], Coroutine[Any, Any, None]]
+
 
 class PriceMonitor:
-    """価格監視クラス（Polymarket CLOB WebSocketイベント対応）"""
+    """価格監視クラス（Polymarket CLOB WebSocketイベント対応）
+
+    Observerパターンにより外部ハンドラー（DB保存、アラート等）を登録可能。
+    """
 
     def __init__(self):
         self.price_data: Dict[str, Dict[str, Any]] = {}
         self.orderbooks: Dict[str, Dict[str, Any]] = {}
+        self._handlers: List[EventHandler] = []
         logger.info("PriceMonitor 初期化完了")
+
+    def add_handler(self, handler: EventHandler):
+        """外部イベントハンドラーを登録する
+
+        登録されたハンドラーは price_change, book, last_trade_price 等の
+        イベント発生時に呼び出される。
+
+        Args:
+            handler: async def handler(event_type: str, data: dict) -> None
+        """
+        self._handlers.append(handler)
+        logger.info(f"イベントハンドラー登録: {handler.__name__}")
+
+    async def _notify_handlers(self, event_type: str, data: Dict[str, Any]):
+        """登録済みハンドラーにイベントを通知"""
+        for handler in self._handlers:
+            try:
+                await handler(event_type, data)
+            except Exception as e:
+                logger.error(f"ハンドラーエラー ({handler.__name__}): {e}")
 
     async def on_price_update(self, data: Union[Dict, List, Any]):
         """WebSocketメッセージ受信時のコールバック"""
         try:
             if isinstance(data, list):
-                # bookイベント等: [{event_type: "book", ...}, ...]
                 for item in data:
                     if isinstance(item, dict):
                         await self._process_event(item)
@@ -38,7 +65,6 @@ class PriceMonitor:
             elif event_type == "tick_size_change":
                 await self._handle_tick_size_change(data)
             elif "price_changes" in data:
-                # ラッパー形式: {"market": "...", "price_changes": [...]}
                 market = data.get("market", "")
                 for change in data["price_changes"]:
                     if isinstance(change, dict):
@@ -90,6 +116,16 @@ class PriceMonitor:
             f"bids={len(bids)} | asks={len(asks)}"
         )
 
+        await self._notify_handlers("book", {
+            "asset_id": asset_id,
+            "market": market,
+            "timestamp": timestamp,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "bids_count": len(bids),
+            "asks_count": len(asks),
+        })
+
     async def _handle_price_change(self, data: Dict[str, Any]):
         """価格変更イベント処理"""
         asset_id = data.get("asset_id")
@@ -101,6 +137,7 @@ class PriceMonitor:
         side = data.get("side")
         best_bid = data.get("best_bid")
         best_ask = data.get("best_ask")
+        market = data.get("market")
         timestamp = data.get("timestamp", datetime.now(timezone.utc).isoformat())
 
         self.price_data[asset_id] = {
@@ -118,6 +155,17 @@ class PriceMonitor:
             f"bid={best_bid} | ask={best_ask}"
         )
 
+        await self._notify_handlers("price_change", {
+            "asset_id": asset_id,
+            "market": market,
+            "price": price,
+            "size": size,
+            "side": side,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "timestamp": timestamp,
+        })
+
     async def _handle_last_trade(self, data: Dict[str, Any]):
         """最終取引価格イベント処理"""
         asset_id = data.get("asset_id")
@@ -129,6 +177,13 @@ class PriceMonitor:
             f"[TRADE] asset={self._short_id(asset_id)} | "
             f"side={side} | price={price} | size={size}"
         )
+
+        await self._notify_handlers("last_trade_price", {
+            "asset_id": asset_id,
+            "price": price,
+            "size": size,
+            "side": side,
+        })
 
     async def _handle_tick_size_change(self, data: Dict[str, Any]):
         """ティックサイズ変更イベント処理"""

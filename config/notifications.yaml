@@ -1,0 +1,21 @@
+# 通知チャンネル設定
+#
+# 各チャンネルの enabled を true にし、環境変数を設定すると通知が有効になる。
+# 環境変数が未設定の場合、enabled: true でもスキップされる。
+
+channels:
+  telegram:
+    enabled: true
+    # 環境変数: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+    message_format: |
+      [{condition}] {market_name}
+      価格: {price}
+      {message}
+
+  discord:
+    enabled: true
+    # 環境変数: DISCORD_WEBHOOK_URL
+    message_format: |
+      **[{condition}]** {market_name}
+      価格: {price}
+      {message}

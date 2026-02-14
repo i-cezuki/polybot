@@ -9,9 +9,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from loguru import logger
 
+from alerts.alert_engine import AlertEngine
+from alerts.alert_handler import AlertHandler
 from api.polymarket_client import PolymarketClient
 from api.websocket_client import WebSocketClient
+from database.db_manager import DatabaseManager
+from monitor.data_recorder import DataRecorder
 from monitor.price_monitor import PriceMonitor
+from notifications.notification_manager import NotificationManager
 from utils.config_loader import ConfigLoader
 from utils.logger import setup_logger
 
@@ -129,8 +134,37 @@ async def main():
         server_time = await poly_client.get_server_time()
         logger.info(f"サーバー時刻: {server_time}")
 
+        # データベース初期化
+        db_manager = DatabaseManager(db_path="data/polybot.db")
+
+        # 通知マネージャー初期化
+        notifications_config = config_loader.load_yaml("notifications.yaml")
+        notification_manager = NotificationManager(
+            db_manager=db_manager,
+            notifications_config=notifications_config,
+        )
+
+        # アラートエンジン初期化
+        alerts_config = config_loader.load_yaml("alerts.yaml")
+        alert_engine = AlertEngine(
+            alerts_config=alerts_config,
+            db_manager=db_manager,
+            notification_manager=notification_manager,
+        )
+
         # 価格モニター初期化
         price_monitor = PriceMonitor()
+
+        # データ蓄積ハンドラー登録（JSONL形式で data/ に保存）
+        data_recorder = DataRecorder(data_dir="data")
+        price_monitor.add_handler(data_recorder.handle_event)
+
+        # アラートハンドラー登録（DB保存 + アラート評価）
+        alert_handler = AlertHandler(
+            db_manager=db_manager,
+            alert_engine=alert_engine,
+        )
+        price_monitor.add_handler(alert_handler.handle_event)
 
         # マーケット取得（自動 or 手動）
         auto_discover = markets_config.get("auto_discover", False)
