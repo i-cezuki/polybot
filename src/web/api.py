@@ -11,6 +11,7 @@ from typing import Optional
 
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
@@ -22,14 +23,14 @@ from backtester.performance_analyzer import PerformanceAnalyzer
 
 app = FastAPI(title="Polybot Web API", version="1.0.0")
 
-# CORS（開発時: Vite dev server → FastAPI）
-if os.getenv("ENVIRONMENT", "development") == "development":
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["http://localhost:5173"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# 開発用: Reactからのアクセスを許可
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # グローバル参照（startup で初期化）
 _db_manager: Optional[DatabaseManager] = None
@@ -281,7 +282,27 @@ def run_backtest(
     }
 
 
-# 静的ファイル配信（ビルド済みフロントエンド）
-_frontend_dist = Path(__file__).parent / "frontend" / "dist"
-if _frontend_dist.exists():
-    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")
+# フロントエンドのビルド成果物ディレクトリ
+_frontend_dir = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+
+# ディレクトリが存在する場合のみマウント (開発中のエラー防止)
+if os.path.exists(_frontend_dir):
+    # アセットファイル (JS/CSS) を /assets で配信
+    app.mount("/assets", StaticFiles(directory=os.path.join(_frontend_dir, "assets")), name="assets")
+
+    # SPA対応: API以外のパスへのアクセスはすべて index.html を返す
+    @app.get("/{full_path:path}")
+    async def serve_frontend(full_path: str):
+        # APIへのリクエストは除外
+        if full_path.startswith("api") or full_path.startswith("docs"):
+            return {"error": "Not Found"}
+
+        # ファイルが存在すればそれを返す (favicon.icoなど)
+        file_path = os.path.join(_frontend_dir, full_path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return FileResponse(file_path)
+
+        # それ以外は React の index.html を返す
+        return FileResponse(os.path.join(_frontend_dir, "index.html"))
+else:
+    logger.warning(f"Frontend build not found at {_frontend_dir}. Web UI will not be available.")
