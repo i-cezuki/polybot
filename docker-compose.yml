@@ -27,8 +27,13 @@ services:
     volumes:
       - ./config:/app/config
       - ./data:/app/data
+      - ./logs:/app/logs
       - ./src:/app/src
       - ./reports:/app/reports
+    environment:
+      - PYTHONPATH=/app/src
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
     env_file:
       - .env
     depends_on:
