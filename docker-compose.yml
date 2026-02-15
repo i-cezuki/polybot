@@ -21,7 +21,14 @@ services:
   web:
     build: .
     container_name: polybot-web
-    command: uvicorn src.web.api:app --host 0.0.0.0 --port 8000 --reload
+    command: >
+      bash -c "
+        if [ -d /opt/frontend_dist ] && [ ! -d /app/src/web/frontend/dist ]; then
+          cp -r /opt/frontend_dist /app/src/web/frontend/dist;
+          echo 'Frontend dist copied from Docker build';
+        fi;
+        uvicorn src.web.api:app --host 0.0.0.0 --port 8000 --reload
+      "
     ports:
       - "8000:8000"
     volumes:

@@ -30,8 +30,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ソースコード一式をコピー
 COPY . .
 
-# Stage 1で作ったReactのビルド成果物を、Pythonが参照する場所にコピー
-COPY --from=frontend-builder /app/frontend/dist /app/src/web/frontend/dist
+# Stage 1で作ったReactのビルド成果物をボリュームマウントの影響外に保存
+COPY --from=frontend-builder /app/frontend/dist /opt/frontend_dist
 
 # 環境変数の設定 (ログ出力の即時表示など)
 ENV PYTHONUNBUFFERED=1
