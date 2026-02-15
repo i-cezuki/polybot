@@ -248,6 +248,37 @@ class DatabaseManager:
                 position.realized_pnl = round(position.realized_pnl + realized_pnl_delta, 6)
                 position.updated_at = datetime.now(timezone.utc)
 
+    def get_all_positions(self) -> list[Position]:
+        """size_usdc > 0 のポジション全取得（Web API 用）"""
+        with self._session() as session:
+            stmt = (
+                select(Position)
+                .where(Position.size_usdc > 0)
+                .order_by(Position.updated_at.desc())
+            )
+            results = session.execute(stmt).scalars().all()
+            session.expunge_all()
+            return list(results)
+
+    def get_price_history_range(
+        self,
+        market: str,
+        since: datetime,
+        until: datetime,
+    ) -> list[PriceHistory]:
+        """期間指定の価格履歴取得（バックテスト用）"""
+        with self._session() as session:
+            stmt = (
+                select(PriceHistory)
+                .where(PriceHistory.market == market)
+                .where(PriceHistory.timestamp >= since)
+                .where(PriceHistory.timestamp <= until)
+                .order_by(PriceHistory.timestamp.asc())
+            )
+            results = session.execute(stmt).scalars().all()
+            session.expunge_all()
+            return list(results)
+
     def delete_position(self, asset_id: str) -> None:
         """ポジションを削除"""
         with self._session() as session:

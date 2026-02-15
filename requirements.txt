@@ -25,6 +25,14 @@ discord-webhook==1.3.0
 # データベース
 sqlalchemy==2.0.23
 
+# Web API
+fastapi==0.108.0
+uvicorn[standard]==0.25.0
+
+# 数値計算 / 可視化
+numpy==1.26.2
+matplotlib==3.8.2
+
 # テスト
 pytest==8.3.4
 pytest-asyncio==0.24.0

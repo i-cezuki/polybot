@@ -18,6 +18,24 @@ services:
     networks:
       - polybot-network
 
+  web:
+    build: .
+    container_name: polybot-web
+    command: uvicorn src.web.api:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./src:/app/src
+      - ./reports:/app/reports
+    env_file:
+      - .env
+    depends_on:
+      - polybot
+    networks:
+      - polybot-network
+
 networks:
   polybot-network:
     driver: bridge
