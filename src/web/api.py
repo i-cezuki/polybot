@@ -3,11 +3,15 @@
 ポジション確認・取引履歴・パフォーマンス・バックテスト実行を提供。
 """
 import importlib.util
-from datetime import datetime, timedelta, timezone
+import os
+import re
+from datetime import datetime, date, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Query
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from loguru import logger
 
 from database.db_manager import DatabaseManager
@@ -17,6 +21,15 @@ from backtester.backtest_engine import BacktestEngine
 from backtester.performance_analyzer import PerformanceAnalyzer
 
 app = FastAPI(title="Polybot Web API", version="1.0.0")
+
+# CORS（開発時: Vite dev server → FastAPI）
+if os.getenv("ENVIRONMENT", "development") == "development":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # グローバル参照（startup で初期化）
 _db_manager: Optional[DatabaseManager] = None
@@ -43,6 +56,23 @@ def _load_calculate_signal(strategy_path: str = "config/strategy.py"):
     return None
 
 
+_LOG_PATTERN = re.compile(
+    r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\s*\|\s*(\w+)\s*\|\s*(.+)$"
+)
+
+
+def _parse_log_line(line: str) -> Optional[dict]:
+    """ログ行をパースして dict に変換"""
+    m = _LOG_PATTERN.match(line.strip())
+    if not m:
+        return None
+    return {
+        "timestamp": m.group(1),
+        "level": m.group(2).strip(),
+        "message": m.group(3).strip(),
+    }
+
+
 @app.on_event("startup")
 def startup_event():
     """アプリケーション起動時の初期化"""
@@ -52,16 +82,23 @@ def startup_event():
     logger.info("Web API 起動完了")
 
 
-@app.get("/")
-def root():
-    """ルートエンドポイント"""
-    return {"message": "Polybot Web API", "status": "running"}
-
-
 @app.get("/api/status")
 def get_status():
     """システムステータス"""
-    return {"status": "running", "version": "1.0.0"}
+    daily_pnl = 0.0
+    total_assets_usdc = 0.0
+
+    if _db_manager is not None:
+        daily_pnl = _db_manager.get_daily_pnl()
+        positions = _db_manager.get_all_positions()
+        total_assets_usdc = sum(p.size_usdc for p in positions)
+
+    return {
+        "status": "running",
+        "version": "1.0.0",
+        "daily_pnl": round(daily_pnl, 6),
+        "total_assets_usdc": round(total_assets_usdc, 6),
+    }
 
 
 @app.get("/api/positions")
@@ -148,6 +185,46 @@ def get_performance(
     }
 
 
+@app.get("/api/logs")
+def get_logs(
+    limit: int = Query(default=100, ge=1, le=1000),
+    level: Optional[str] = Query(default=None),
+):
+    """ログ取得（最新のログファイルから末尾を読み取り）"""
+    log_dir = Path("logs")
+    if not log_dir.exists():
+        return {"logs": [], "count": 0}
+
+    # 最新のログファイルを探す
+    log_files = sorted(log_dir.glob("polybot_*.log"), reverse=True)
+    if not log_files:
+        return {"logs": [], "count": 0}
+
+    entries: list[dict] = []
+    for log_file in log_files:
+        if len(entries) >= limit:
+            break
+        try:
+            lines = log_file.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+
+        for line in reversed(lines):
+            if len(entries) >= limit:
+                break
+            parsed = _parse_log_line(line)
+            if parsed is None:
+                continue
+            if level and parsed["level"] != level.upper():
+                continue
+            entries.append(parsed)
+
+    # 時系列順に並べ替え
+    entries.reverse()
+
+    return {"logs": entries, "count": len(entries)}
+
+
 @app.post("/api/backtest")
 def run_backtest(
     market_id: Optional[str] = Query(default=None),
@@ -163,7 +240,6 @@ def run_backtest(
     # データ取得
     fetcher = DataFetcher(data_dir="data", db_manager=_db_manager)
 
-    from datetime import date
     end_date = date.today().isoformat()
     start_date = (date.today() - timedelta(days=days)).isoformat()
 
@@ -200,4 +276,12 @@ def run_backtest(
         "ticks_count": len(ticks),
         "analysis": analysis,
         "trades_count": len(results.get("trades", [])),
+        "equity_curve": results.get("equity_curve", []),
+        "trades": results.get("trades", []),
     }
+
+
+# 静的ファイル配信（ビルド済みフロントエンド）
+_frontend_dist = Path(__file__).parent / "frontend" / "dist"
+if _frontend_dist.exists():
+    app.mount("/", StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")

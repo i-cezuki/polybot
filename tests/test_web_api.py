@@ -17,17 +17,6 @@ def client():
     return TestClient(app)
 
 
-class TestRootEndpoint:
-    """GET / テスト"""
-
-    def test_root(self, client):
-        response = client.get("/")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "running"
-        assert "message" in data
-
-
 class TestStatusEndpoint:
     """GET /api/status テスト"""
 
@@ -37,6 +26,35 @@ class TestStatusEndpoint:
         data = response.json()
         assert data["status"] == "running"
         assert data["version"] == "1.0.0"
+
+    def test_status_has_daily_pnl(self, client):
+        """daily_pnl と total_assets_usdc が含まれること"""
+        response = client.get("/api/status")
+        assert response.status_code == 200
+        data = response.json()
+        assert "daily_pnl" in data
+        assert "total_assets_usdc" in data
+
+    def test_status_with_mock_db(self, client):
+        """DB にデータがある場合の daily_pnl と total_assets_usdc"""
+        import web.api as api_module
+
+        mock_db = MagicMock()
+        mock_db.get_daily_pnl.return_value = 42.5
+        mock_pos = MagicMock()
+        mock_pos.size_usdc = 500.0
+        mock_db.get_all_positions.return_value = [mock_pos]
+
+        original_db = api_module._db_manager
+        api_module._db_manager = mock_db
+        try:
+            response = client.get("/api/status")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["daily_pnl"] == 42.5
+            assert data["total_assets_usdc"] == 500.0
+        finally:
+            api_module._db_manager = original_db
 
 
 class TestPositionsEndpoint:
@@ -199,3 +217,107 @@ class TestLoadCalculateSignal:
     def test_load_missing_file(self):
         fn = _load_calculate_signal("/nonexistent/strategy.py")
         assert fn is None
+
+
+class TestLogsEndpoint:
+    """GET /api/logs テスト"""
+
+    def test_logs_no_dir(self, client):
+        """ログディレクトリが無い場合"""
+        with patch("web.api.Path") as MockPath:
+            mock_log_dir = MagicMock()
+            mock_log_dir.exists.return_value = False
+
+            def side_effect(arg):
+                if arg == "logs":
+                    return mock_log_dir
+                return Path(arg)
+
+            MockPath.side_effect = side_effect
+
+            response = client.get("/api/logs")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["logs"] == []
+            assert data["count"] == 0
+
+    def test_logs_with_file(self, client, tmp_path):
+        """ログファイルがある場合のパース確認"""
+        log_content = (
+            "2026-02-15 10:00:00 | INFO     | web.api:startup_event - Web API 起動完了\n"
+            "2026-02-15 10:00:01 | WARNING  | monitor:check - 価格急変\n"
+            "2026-02-15 10:00:02 | ERROR    | executor:run - 注文エラー\n"
+        )
+        log_file = tmp_path / "polybot_2026-02-15.log"
+        log_file.write_text(log_content)
+
+        with patch("web.api.Path") as MockPath:
+            mock_log_dir = MagicMock()
+            mock_log_dir.exists.return_value = True
+            mock_log_dir.glob.return_value = [log_file]
+
+            def side_effect(arg):
+                if arg == "logs":
+                    return mock_log_dir
+                return Path(arg)
+
+            MockPath.side_effect = side_effect
+
+            response = client.get("/api/logs")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["count"] == 3
+            assert data["logs"][0]["level"] == "INFO"
+            assert data["logs"][2]["level"] == "ERROR"
+
+    def test_logs_with_level_filter(self, client, tmp_path):
+        """level パラメータでフィルタリング"""
+        log_content = (
+            "2026-02-15 10:00:00 | INFO     | test - info msg\n"
+            "2026-02-15 10:00:01 | ERROR    | test - error msg\n"
+        )
+        log_file = tmp_path / "polybot_2026-02-15.log"
+        log_file.write_text(log_content)
+
+        with patch("web.api.Path") as MockPath:
+            mock_log_dir = MagicMock()
+            mock_log_dir.exists.return_value = True
+            mock_log_dir.glob.return_value = [log_file]
+
+            def side_effect(arg):
+                if arg == "logs":
+                    return mock_log_dir
+                return Path(arg)
+
+            MockPath.side_effect = side_effect
+
+            response = client.get("/api/logs?level=ERROR")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["count"] == 1
+            assert data["logs"][0]["level"] == "ERROR"
+
+    def test_logs_with_limit(self, client, tmp_path):
+        """limit パラメータで件数制限"""
+        lines = []
+        for i in range(10):
+            lines.append(f"2026-02-15 10:00:{i:02d} | INFO     | test - msg {i}")
+        log_file = tmp_path / "polybot_2026-02-15.log"
+        log_file.write_text("\n".join(lines))
+
+        with patch("web.api.Path") as MockPath:
+            mock_log_dir = MagicMock()
+            mock_log_dir.exists.return_value = True
+            mock_log_dir.glob.return_value = [log_file]
+
+            def side_effect(arg):
+                if arg == "logs":
+                    return mock_log_dir
+                return Path(arg)
+
+            MockPath.side_effect = side_effect
+
+            response = client.get("/api/logs?limit=3")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["count"] == 3
