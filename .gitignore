@@ -35,6 +35,9 @@ data/*.db
 .DS_Store
 Thumbs.db
 
+# Node.js
+node_modules/
+
 # Docker
 .docker/
 

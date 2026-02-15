@@ -17,6 +17,10 @@ from database.db_manager import DatabaseManager
 from monitor.data_recorder import DataRecorder
 from monitor.price_monitor import PriceMonitor
 from notifications.notification_manager import NotificationManager
+from executor.order_executor import OrderExecutor
+from executor.position_manager import PositionManager
+from risk.risk_manager import RiskManager
+from strategy.strategy_handler import StrategyHandler
 from utils.config_loader import ConfigLoader
 from utils.logger import setup_logger
 
@@ -165,6 +169,39 @@ async def main():
             alert_engine=alert_engine,
         )
         price_monitor.add_handler(alert_handler.handle_event)
+
+        # 戦略フレームワーク初期化
+        try:
+            risk_config = config_loader.load_yaml("risk.yaml")
+        except Exception:
+            logger.warning("risk.yaml が見つかりません。デフォルト設定を使用します。")
+            risk_config = {
+                "global": {
+                    "max_total_position_usdc": 1000,
+                    "max_daily_loss_usdc": 100,
+                    "max_daily_trades": 50,
+                    "max_single_trade_usdc": 100,
+                },
+                "circuit_breaker": {"enabled": True, "cooldown_minutes": 60},
+            }
+
+        position_manager = PositionManager(db_manager)
+        risk_manager = RiskManager(risk_config, db_manager, position_manager)
+        order_executor = OrderExecutor(
+            db_manager, slippage_config=risk_config.get("slippage")
+        )
+
+        try:
+            strategy_handler = StrategyHandler(
+                db_manager=db_manager,
+                risk_manager=risk_manager,
+                order_executor=order_executor,
+                position_manager=position_manager,
+                strategy_path="config/strategy.py",
+            )
+            price_monitor.add_handler(strategy_handler.handle_event)
+        except Exception as e:
+            logger.warning(f"戦略ハンドラー初期化失敗（監視は継続）: {e}")
 
         # マーケット取得（自動 or 手動）
         auto_discover = markets_config.get("auto_discover", False)

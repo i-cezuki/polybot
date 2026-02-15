@@ -54,3 +54,46 @@ class NotificationHistory(Base):
     sent_at: Mapped[datetime] = mapped_column(
         DateTime, default=lambda: datetime.now(timezone.utc)
     )
+
+
+class Trade(Base):
+    """取引記録テーブル"""
+    __tablename__ = "trades"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    asset_id: Mapped[str] = mapped_column(String(256), index=True)
+    market: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    action: Mapped[str] = mapped_column(String(10))  # BUY / SELL
+    price: Mapped[float] = mapped_column(Float)
+    amount_usdc: Mapped[float] = mapped_column(Float)
+    simulated: Mapped[int] = mapped_column(Integer, default=1)
+    realized_pnl: Mapped[float | None] = mapped_column(Float, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class Position(Base):
+    """ポジションテーブル
+
+    Polymarket の YES/NO トークンは異なる asset_id を持つため、
+    asset_id 単位でポジションを管理すれば両方を正しく追跡できる。
+    現状は現物のみ（空売りなし）を前提とした設計。
+    """
+    __tablename__ = "positions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    asset_id: Mapped[str] = mapped_column(String(256), unique=True, index=True)
+    market: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    side: Mapped[str] = mapped_column(String(10), default="BUY")
+    size_usdc: Mapped[float] = mapped_column(Float, default=0.0)
+    average_price: Mapped[float] = mapped_column(Float, default=0.0)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )

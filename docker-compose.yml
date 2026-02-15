@@ -18,6 +18,36 @@ services:
     networks:
       - polybot-network
 
+  web:
+    build: .
+    container_name: polybot-web
+    command: >
+      bash -c "
+        if [ -d /opt/frontend_dist ] && [ ! -d /app/src/web/frontend/dist ]; then
+          cp -r /opt/frontend_dist /app/src/web/frontend/dist;
+          echo 'Frontend dist copied from Docker build';
+        fi;
+        uvicorn src.web.api:app --host 0.0.0.0 --port 8000 --reload
+      "
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./src:/app/src
+      - ./reports:/app/reports
+    environment:
+      - PYTHONPATH=/app/src
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
+    env_file:
+      - .env
+    depends_on:
+      - polybot
+    networks:
+      - polybot-network
+
 networks:
   polybot-network:
     driver: bridge
