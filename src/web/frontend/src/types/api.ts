@@ -3,7 +3,13 @@ export interface StatusResponse {
   version: string;
   daily_pnl: number;
   total_assets_usdc: number;
+  dry_run: boolean;
 }
+
+export interface DryRunRequest { enabled: boolean }
+export interface DryRunResponse { dry_run: boolean; message: string }
+export interface PanicCloseResponse { success: boolean; closed_positions: number; message: string }
+export interface TestNotificationResponse { success: boolean; message: string }
 
 export interface Position {
   asset_id: string;

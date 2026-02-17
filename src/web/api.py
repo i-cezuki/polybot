@@ -14,9 +14,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from pydantic import BaseModel
 
 from database.db_manager import DatabaseManager
 from executor.position_manager import PositionManager
+from executor.order_executor import OrderExecutor
+from notifications.notification_manager import NotificationManager
 from backtester.data_fetcher import DataFetcher
 from backtester.backtest_engine import BacktestEngine
 from backtester.performance_analyzer import PerformanceAnalyzer
@@ -35,6 +38,13 @@ app.add_middleware(
 # グローバル参照（startup で初期化）
 _db_manager: Optional[DatabaseManager] = None
 _position_manager: Optional[PositionManager] = None
+_order_executor: Optional[OrderExecutor] = None
+_notification_manager: Optional[NotificationManager] = None
+_dry_run: bool = True
+
+
+class DryRunRequest(BaseModel):
+    enabled: bool
 
 
 def _load_calculate_signal(strategy_path: str = "config/strategy.py"):
@@ -77,9 +87,14 @@ def _parse_log_line(line: str) -> Optional[dict]:
 @app.on_event("startup")
 def startup_event():
     """アプリケーション起動時の初期化"""
-    global _db_manager, _position_manager
+    global _db_manager, _position_manager, _order_executor, _notification_manager
     _db_manager = DatabaseManager()
     _position_manager = PositionManager(_db_manager)
+    _order_executor = OrderExecutor(_db_manager)
+    try:
+        _notification_manager = NotificationManager(_db_manager)
+    except Exception as e:
+        logger.warning(f"通知マネージャー初期化失敗: {e}")
     logger.info("Web API 起動完了")
 
 
@@ -99,6 +114,7 @@ def get_status():
         "version": "1.0.0",
         "daily_pnl": round(daily_pnl, 6),
         "total_assets_usdc": round(total_assets_usdc, 6),
+        "dry_run": _dry_run,
     }
 
 
@@ -224,6 +240,57 @@ def get_logs(
     entries.reverse()
 
     return {"logs": entries, "count": len(entries)}
+
+
+@app.post("/api/config/dry_run")
+def set_dry_run(req: DryRunRequest):
+    """ドライランモードの切り替え"""
+    global _dry_run
+    _dry_run = req.enabled
+    if _order_executor is not None:
+        _order_executor.live_trading = not req.enabled
+    return {
+        "dry_run": _dry_run,
+        "message": f"Dry-run mode {'enabled' if _dry_run else 'disabled'}",
+    }
+
+
+@app.post("/api/control/panic_close")
+def panic_close():
+    """全ポジションを強制クローズしドライランモードを有効化"""
+    global _dry_run
+    closed = 0
+    if _db_manager is not None:
+        positions = _db_manager.get_all_positions()
+        for p in positions:
+            _db_manager.delete_position(p.asset_id)
+            closed += 1
+    _dry_run = True
+    if _order_executor is not None:
+        _order_executor.live_trading = False
+    return {
+        "success": True,
+        "closed_positions": closed,
+        "message": f"Panic close executed. {closed} position(s) closed. Dry-run mode activated.",
+    }
+
+
+@app.post("/api/control/test_notification")
+async def test_notification():
+    """テスト通知を送信"""
+    if _notification_manager is None:
+        return {"success": False, "message": "Notification manager not initialized"}
+    try:
+        await _notification_manager.send_alert(
+            alert_log_id=0,
+            market_name="TEST",
+            price="0.00",
+            condition="test",
+            message="This is a test notification from Polybot dashboard.",
+        )
+        return {"success": True, "message": "Test notification sent"}
+    except Exception as e:
+        return {"success": False, "message": f"Failed to send notification: {e}"}
 
 
 @app.post("/api/backtest")

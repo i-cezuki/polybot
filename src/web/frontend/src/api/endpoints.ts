@@ -7,6 +7,10 @@ import type {
   LogsResponse,
   BacktestParams,
   BacktestResponse,
+  DryRunRequest,
+  DryRunResponse,
+  PanicCloseResponse,
+  TestNotificationResponse,
 } from "../types/api";
 
 export function fetchStatus(): Promise<StatusResponse> {
@@ -48,6 +52,25 @@ export function runBacktest(
   });
   if (params.market_id) query.set("market_id", params.market_id);
   return apiFetch<BacktestResponse>(`/api/backtest?${query}`, {
+    method: "POST",
+  });
+}
+
+export function setDryRun(params: DryRunRequest): Promise<DryRunResponse> {
+  return apiFetch<DryRunResponse>("/api/config/dry_run", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export function panicClose(): Promise<PanicCloseResponse> {
+  return apiFetch<PanicCloseResponse>("/api/control/panic_close", {
+    method: "POST",
+  });
+}
+
+export function testNotification(): Promise<TestNotificationResponse> {
+  return apiFetch<TestNotificationResponse>("/api/control/test_notification", {
     method: "POST",
   });
 }

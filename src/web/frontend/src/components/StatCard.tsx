@@ -1,4 +1,4 @@
-import { Box, Text, Stat, StatLabel, StatNumber } from "@chakra-ui/react";
+import { Box, Stat, StatLabel, StatNumber } from "@chakra-ui/react";
 import type { ReactNode } from "react";
 
 interface StatCardProps {
@@ -18,7 +18,7 @@ export default function StatCard({ label, value, color, children }: StatCardProp
         <StatNumber fontSize="xl" color={color}>
           {value}
         </StatNumber>
-        {children && <Text mt={1}>{children}</Text>}
+        {children && <Box mt={1}>{children}</Box>}
       </Stat>
     </Box>
   );
