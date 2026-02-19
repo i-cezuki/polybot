@@ -104,7 +104,7 @@ class BacktestEngine:
             amount = signal.get("amount", 0)
             reason = signal.get("reason", "")
 
-            if action == "BUY" and amount > 0:
+            if action == "BUY" and amount > 0 and amount <= capital:
                 exec_price = self._calc_execution_price(
                     "BUY", price, tick.get("best_bid"), tick.get("best_ask")
                 )
@@ -251,7 +251,6 @@ class BacktestEngine:
     ) -> Optional[dict]:
         """BUY 処理（PositionManager.update_after_trade BUY と同一ロジック）"""
         if amount_usdc > capital:
-            logger.debug(f"資金不足: 必要={amount_usdc:.2f}, 残={capital:.2f}")
             return None
 
         pos = positions.get(asset_id)
